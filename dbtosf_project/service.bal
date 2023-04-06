@@ -1,5 +1,12 @@
+import ballerinax/salesforce;
 import ballerina/http;
 
+type SalesforceConfig record {|
+    string baseUrl;
+    string token;
+|};
+
+configurable SalesforceConfig sfConfig = ?;
 function transform(ContactsInput contactsInput) returns ContactsOutput => {
     numberOfContacts: contactsInput.totalSize,
     contacts: from var recordsItem in contactsInput.records
@@ -53,6 +60,10 @@ type ContactsInput record {
     RecordsItem[] records;
 };
 
+salesforce:Client salesforceEp = check new (config = {
+baseUrl:sfConfig.baseUrl,auth: {
+token: sfConfig.token
+}});
 # A service representing a network-accessible API
 # bound to port `9090`.
 service / on new http:Listener(9090) {
@@ -68,15 +79,34 @@ service / on new http:Listener(9090) {
         return "Hello, " + name;
     }
 
-
 # A resource for transforming contacts
 # + contactsInput - the input contacts
 # + return - transformed contacts or error
-resource function post contacts(@http:Payload ContactsInput contactsInput) returns ContactsOutput|error? {
+    resource function post contacts(@http:Payload ContactsInput contactsInput) returns ContactsOutput|error? {
         ContactsOutput contactsOutput = transform(contactsInput);
         return contactsOutput;
     }
 
+# A resource for fetching contacts from salesforce 
+# + return - Contacts collection or error
+resource function get contacts() returns ContactsOutput|error? {
+        
+salesforce:SoqlResult|salesforce:Error soqlResult = salesforceEp->getQueryResult("SELECT Id,FirstName,LastName,Email,Phone FROM Contact");
+        
+if (soqlResult is salesforce:SoqlResult) {
+
+            json results = soqlResult.toJson();
+
+            ContactsInput salesforceContactsResponse = check results.cloneWithType(ContactsInput);
+
+            ContactsOutput contacts = transform(salesforceContactsResponse);
+
+            return contacts;
+
+        } else {
+            return error(soqlResult.message());
+        }
+    }
 
 }
 
